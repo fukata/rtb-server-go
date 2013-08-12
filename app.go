@@ -9,6 +9,7 @@ import (
     "time"
     "io/ioutil"
     "encoding/json"
+    "runtime"
 )
 
 type Dsp struct {
@@ -69,7 +70,7 @@ func doRequests(dsps []Dsp) <-chan Result {
 
 var client = makeClient()
 func doRequest(dsp Dsp, receiver chan Result) {
-    url := fmt.Sprintf("http://localhost:8080/ad?id=%s&t=%d&s=%d&p=%d", dsp.ReqId, dsp.SleepMs, dsp.Status, dsp.Price)
+    url := fmt.Sprintf("http://dsp/ad?id=%s&t=%d&s=%d&p=%d", dsp.ReqId, dsp.SleepMs, dsp.Status, dsp.Price)
     //log.Println(url)
     resp, err := client.Get(url)
 
@@ -78,19 +79,23 @@ func doRequest(dsp Dsp, receiver chan Result) {
     if err != nil {
         //log.Println("error")
     } else if resp != nil {
-        //defer resp.Body.Close()
-        resp.Body.Close()
-        body, _ := ioutil.ReadAll(resp.Body)
-        //log.Println(string(body))
-        var bid_res BidResponse
-        err := json.Unmarshal(body, &bid_res)
-        if err != nil {
-            //log.Println("json parse error")
-        }
+        defer resp.Body.Close()
 
-        result.ReqId  = bid_res.Id
-        result.Status = bid_res.Status
-        result.Price  = bid_res.Price
+        body, errRead := ioutil.ReadAll(resp.Body)
+        if errRead != nil {
+            log.Println("response read error")
+        } else {
+            //log.Println(string(body))
+            var bidResp BidResponse
+            errJson := json.Unmarshal(body, &bidResp)
+            if errJson != nil {
+                log.Println("json parse error")
+            }
+
+            result.ReqId  = bidResp.Id
+            result.Status = bidResp.Status
+            result.Price  = bidResp.Price
+        }
     }
 
     receiver <- result
@@ -100,20 +105,20 @@ func doAuction(results []Result) Win {
     win := Win{}
     win.DspId = -1
 
-    var max_result Result
+    var maxResult Result
     for _, result := range results {
         if result.Status != 1 { continue }
 
-        if max_result.Price == 0 {
-            max_result = result
-        } else if result.Price > max_result.Price {
-            max_result = result
+        if maxResult.Price == 0 {
+            maxResult = result
+        } else if result.Price > maxResult.Price {
+            maxResult = result
         }
     }
 
-    win.DspId = max_result.DspId
-    win.ReqId = max_result.ReqId
-    win.Price = max_result.Price
+    win.DspId = maxResult.DspId
+    win.ReqId = maxResult.ReqId
+    win.Price = maxResult.Price
 
     return win
 }
@@ -121,12 +126,12 @@ func doAuction(results []Result) Win {
 func handler(w http.ResponseWriter, r *http.Request) {
     params     := r.URL.Query()
     id         := params["id"][0]
-    dsp_num, _ := strconv.Atoi( params["dsp"][0] )
-    dsps       := make([]Dsp, dsp_num)
+    dspNum, _ := strconv.Atoi( params["dsp"][0] )
+    dsps       := make([]Dsp, dspNum)
 
     // parse dsp parameters 
-    for i := 0; i < dsp_num; i++ {
-        sleep_ms, _ := strconv.Atoi( params[fmt.Sprintf("d%d_t", i)][0] )
+    for i := 0; i < dspNum; i++ {
+        sleepMs, _ := strconv.Atoi( params[fmt.Sprintf("d%d_t", i)][0] )
         status, _   := strconv.Atoi( params[fmt.Sprintf("d%d_s", i)][0] )
         price       := 0
         price_key   := fmt.Sprintf("d%d_p", i)
@@ -134,7 +139,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
             price, _ = strconv.Atoi( params[price_key][0] )
         }
 
-        dsp     := &Dsp{ i, id, sleep_ms, status, price }
+        dsp     := &Dsp{ i, id, sleepMs, status, price }
         dsps[i] = *dsp
     }
 
@@ -143,14 +148,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
     receiver := doRequests(dsps)
 
     // receive result
-    result_num := 0
+    resultNum := 0
     for {
         result := <-receiver
         //log.Println(result)
         results[result.DspId] = result
 
-        result_num++
-        if len(results) == result_num { break }
+        resultNum++
+        if len(results) == resultNum { break }
     }
     //log.Println(results)
 
@@ -164,12 +169,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
         Price: win.Price,
     }
     bytes, _ := json.Marshal(response)
-    json_str := string(bytes)
-//    log.Println(json_str)
-    fmt.Fprint(w, json_str)
+    jsonStr := string(bytes)
+//    log.Println(jsonStr)
+    fmt.Fprint(w, jsonStr)
 }
 
 func main() {
+    runtime.GOMAXPROCS(runtime.NumCPU())
+
     port := flag.Int("port", 5000, "PORT")
     flag.Parse()
 
