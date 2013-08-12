@@ -11,62 +11,6 @@ import (
     "encoding/json"
 )
 
-type RTBHTTPHandler struct {
-    m *http.Handler
-}
-
-func (h *RTBHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    params     := r.URL.Query()
-    id         := params["id"][0]
-    dsp_num, _ := strconv.Atoi( params["dsp"][0] )
-    dsps       := make([]Dsp, dsp_num)
-
-    // parse dsp parameters 
-    for i := 0; i < dsp_num; i++ {
-        sleep_ms, _ := strconv.Atoi( params[fmt.Sprintf("d%d_t", i)][0] )
-        status, _   := strconv.Atoi( params[fmt.Sprintf("d%d_s", i)][0] )
-        price       := 0
-        price_key   := fmt.Sprintf("d%d_p", i)
-        if params[price_key] != nil {
-            price, _ = strconv.Atoi( params[price_key][0] )
-        }
-
-        dsp     := &Dsp{ i, id, sleep_ms, status, price }
-        dsps[i] = *dsp
-    }
-
-    // do request to dsps
-    results  := make([]Result, len(dsps))
-    receiver := doRequests(dsps)
-
-    // receive result
-    result_num := 0
-    for {
-        result := <-receiver
-        //log.Println(result)
-        results[result.DspId] = result
-
-        result_num++
-        if len(results) == result_num { break }
-    }
-    //log.Println(results)
-
-    win := doAuction(results)
-    //log.Println(win)
-
-    w.Header().Set("Content-Type", "application/json")
-    response := Response{
-        Id: win.ReqId,
-        DspId: win.DspId,
-        Price: win.Price,
-    }
-    bytes, _ := json.Marshal(response)
-    json_str := string(bytes)
-//    log.Println(json_str)
-    fmt.Fprint(w, json_str)
-
-}
-
 type Dsp struct {
     DspId   int
     ReqId   string 
@@ -123,18 +67,19 @@ func doRequests(dsps []Dsp) <-chan Result {
     return receiver
 }
 
+var client = makeClient()
 func doRequest(dsp Dsp, receiver chan Result) {
-    client := makeClient()
     url := fmt.Sprintf("http://localhost:8080/ad?id=%s&t=%d&s=%d&p=%d", dsp.ReqId, dsp.SleepMs, dsp.Status, dsp.Price)
     //log.Println(url)
     resp, err := client.Get(url)
 
     result := Result{}
+    result.DspId = dsp.DspId
     if err != nil {
         //log.Println("error")
-        result.DspId = dsp.DspId
-    } else {
-        defer resp.Body.Close()
+    } else if resp != nil {
+        //defer resp.Body.Close()
+        resp.Body.Close()
         body, _ := ioutil.ReadAll(resp.Body)
         //log.Println(string(body))
         var bid_res BidResponse
@@ -143,7 +88,6 @@ func doRequest(dsp Dsp, receiver chan Result) {
             //log.Println("json parse error")
         }
 
-        result.DspId  = dsp.DspId
         result.ReqId  = bid_res.Id
         result.Status = bid_res.Status
         result.Price  = bid_res.Price
@@ -154,6 +98,8 @@ func doRequest(dsp Dsp, receiver chan Result) {
 
 func doAuction(results []Result) Win {
     win := Win{}
+    win.DspId = -1
+
     var max_result Result
     for _, result := range results {
         if result.Status != 1 { continue }
@@ -227,14 +173,6 @@ func main() {
     port := flag.Int("port", 5000, "PORT")
     flag.Parse()
 
-    rtbHandler := RTBHTTPHandler{}
-    s := &http.Server{
-        Addr:    fmt.Sprintf(":%d", *port),
-        Handler: &rtbHandler,
-        ReadTimeout: 500 * time.Millisecond,
-    }
-
-    //http.HandleFunc("/ad", handler)
-    //log.Fatal( http.ListenAndServe(fmt.Sprintf(":%d", *port), nil) )
-    log.Fatal( s.ListenAndServe() )
+    http.HandleFunc("/ad", handler)
+    log.Fatal( http.ListenAndServe(fmt.Sprintf(":%d", *port), nil) )
 }
