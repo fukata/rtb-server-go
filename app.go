@@ -1,7 +1,7 @@
 package main
 
 import (
-    "log"
+//    "log"
     "fmt"
     "net/http"
     "strconv"
@@ -132,8 +132,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
             price, _ = strconv.Atoi( params[price_key][0] )
         }
 
-        dsp     := Dsp{ i, id, sleep_ms, status, price }
-        dsps[i] = dsp
+        dsp     := &Dsp{ i, id, sleep_ms, status, price }
+        dsps[i] = *dsp
     }
 
     // do request to dsps
@@ -163,7 +163,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
     }
     bytes, _ := json.Marshal(response)
     json_str := string(bytes)
-    log.Println(json_str)
+//    log.Println(json_str)
     fmt.Fprint(w, json_str)
 }
 
