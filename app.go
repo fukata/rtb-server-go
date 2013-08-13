@@ -49,6 +49,7 @@ type Response struct {
 func makeClient() http.Client {
     transport := http.Transport{
         ResponseHeaderTimeout: time.Millisecond * 120,
+        MaxIdleConnsPerHost: 200,
     }
 
     client := http.Client{
