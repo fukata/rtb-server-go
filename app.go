@@ -71,7 +71,7 @@ func doRequests(dsps []Dsp) <-chan Result {
 
 var client = makeClient()
 func doRequest(dsp Dsp, receiver chan Result) {
-    url := fmt.Sprintf("http://%s/ad?id=%s&t=%d&s=%d&p=%d", host, dsp.ReqId, dsp.SleepMs, dsp.Status, dsp.Price)
+    url := fmt.Sprintf("http://%s/ad?id=%s&t=%d&s=%d&p=%d", *host, dsp.ReqId, dsp.SleepMs, dsp.Status, dsp.Price)
     //log.Println(url)
     resp, err := client.Get(url)
 
